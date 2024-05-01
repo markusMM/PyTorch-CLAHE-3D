@@ -1,7 +1,10 @@
+#include <torch/torch.h>
 #include <torch/extension.h>
-#include <opencv2/opencv.hpp>
 
-void compute_clahe(torch::Tensor &input, torch::Tensor &mask, int blockSize, float clipLimit)
+// for indexing
+using namespace torch::indexing;
+
+torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float clipLimit = 0.2)
 {
     // Ensure the input tensor is contiguous
     input = input.contiguous();
@@ -13,9 +16,13 @@ void compute_clahe(torch::Tensor &input, torch::Tensor &mask, int blockSize, flo
     int64_t batchSize = input.size(0);
     int64_t numChannels = input.size(1);
     int64_t numBlocks = input.size(2);
-    int64_t blockHeight = blockSize;
-    int64_t blockWidth = blockSize;
-    int64_t blockDepth = blockSize;
+
+    // Get whther to use mask
+    bool masked = true;
+    if (mask.sizes() != input.sizes())
+    {
+        masked = false;
+    }
 
     // Iterate over each block
     for (int64_t b = 0; b < batchSize; ++b)
@@ -25,49 +32,79 @@ void compute_clahe(torch::Tensor &input, torch::Tensor &mask, int blockSize, flo
             for (int64_t i = 0; i < numBlocks; ++i)
             {
                 // Check if the mask is provided and focused CLAHE is requested
-                if (!mask.is_empty() && clipLimit < 0)
+                if (masked)
                 {
                     // Get the current mask block
-                    torch::Tensor maskBlock = mask[b][i];
+                    torch::Tensor maskBlock = mask[b][c][i];
 
-                    // Apply the mask to the input block
-                    input[b][c][i] *= maskBlock;
+                    if (maskBlock.sum().item<float>() == 0)
+                    {
+                        // Skip processing if the block is completely masked out
+                        continue;
+                    }
+                    else if (maskBlock.sum().item<float>() < 1)
+                    {
+                        // Apply the mask to the input block
+                        // if block is not completely masked in
+                        input[b][c][i] *= maskBlock;
+                    }
                 }
 
                 // Get the current block
                 torch::Tensor block = input[b][c][i];
 
                 // Move block to the same device as input tensor
-                block = block.to(device);
+                torch::Tensor blockContiguous = block.to(device);
 
-                // Convert block to CPU tensor for OpenCV
-                torch::Tensor blockCPU = block.to(torch::kCPU);
+                // Get the dimensions of the block
+                int64_t xSize = blockContiguous.size(0);
+                int64_t ySize = blockContiguous.size(1);
+                int64_t zSize = blockContiguous.size(2);
 
-                // Convert block to OpenCV Mat
-                cv::Mat blockMat(blockHeight, blockWidth, CV_32F, blockCPU.data_ptr<float>());
+                // Normalize the block to the range [0, 255]
+                blockContiguous = (blockContiguous - blockContiguous.min()) * (255.0 / (blockContiguous.max() - blockContiguous.min()));
 
-                // Convert block to 8-bit unsigned integer
-                blockMat.convertTo(blockMat, CV_8U, 255.0);
+                // Compute the histogram of the block
+                torch::Tensor hist = torch::histc(blockContiguous.view(-1), 256, 0, 255).to(torch::kFloat);
 
-                // Apply CLAHE
-                cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
-                clahe->setClipLimit(clipLimit);
-                clahe->apply(blockMat, blockMat);
+                // Clip the CDF to the specified limit
+                if ((clipLimit > 0) && (clipLimit < 1))
+                {
+                    // Compute the cumulative distribution function (CDF) of the histogram
+                    torch::Tensor cdf = hist.cumsum(0);
 
-                // Convert block back to float
-                blockMat.convertTo(blockMat, CV_32F, 1.0 / 255.0);
+                    // Normalize the CDF to the range [0, 1]
+                    cdf = cdf / cdf[-1];
+
+                    // Compute the excess distribution above the clip limit
+                    torch::Tensor clipLimitTensor = torch::ones_like(cdf).fill_(clipLimit);
+                    torch::Tensor excess = (cdf - clipLimitTensor).to(torch::kFloat);
+
+                    // clipping
+                    cdf = torch::min(cdf, clipLimitTensor);
+
+                    // Redistribute the excess among the histogram bins
+                    torch::Tensor numExcessBins = (excess > 0).to(torch::kFloat).sum();
+                    torch::Tensor excessPerBin = excess.sum() / numExcessBins;
+                    hist = hist + excessPerBin;
+                }
+
+                // Scale the histogram to the range [0, 255]
+                hist = hist / hist.max() * 255.0;
+
+                // Compute the equalized block using the modified histogram
+                torch::Tensor index = blockContiguous.view(-1).to(torch::kInt);
+                torch::Tensor equalizedBlock = torch::index_select(hist, 0, index);
 
                 // Copy back to the tensor
-                memcpy(blockCPU.data_ptr<float>(), blockMat.data, blockMat.total() * sizeof(float));
-
-                // Move block back to the original device
-                block = blockCPU.to(device);
+                input[b][c][i] = equalizedBlock.reshape({xSize, ySize, zSize}).to(torch::kFloat) / 255.0;
             }
         }
     }
-}
+    return input;
+};
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("compute_clahe", &compute_clahe, "Compute CLAHE inplace");
-}
+};
