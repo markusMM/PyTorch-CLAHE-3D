@@ -4,10 +4,13 @@
 // for indexing
 using namespace torch::indexing;
 
-torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float clipLimit = 0.2)
+torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float clipLimit = 0.2, int nbins = 256)
 {
-    // Ensure the input tensor is contiguous
-    input = input.contiguous();
+    // get max hist value
+    int hmax = nbins - 1;
+
+    // Ensure the input tensor is float
+    input = input.to(torch::kFloat);
 
     // Get the device type of the input tensor
     torch::Device device = input.device();
@@ -16,6 +19,11 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
     int64_t batchSize = input.size(0);
     int64_t numChannels = input.size(1);
     int64_t numBlocks = input.size(2);
+
+    // mallocs
+    torch::Tensor maskBlock = torch::zeros_like(input[0][0][0]);
+    torch::Tensor block = torch::zeros_like(input[0][0][0]);
+    torch::Tensor hist = torch::zeros(nbins);
 
     // Get whther to use mask
     bool masked = true;
@@ -35,7 +43,7 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                 if (masked)
                 {
                     // Get the current mask block
-                    torch::Tensor maskBlock = mask[b][c][i];
+                    maskBlock = mask[b][c][i];
 
                     if (maskBlock.sum().item<float>() == 0)
                     {
@@ -51,21 +59,18 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                 }
 
                 // Get the current block
-                torch::Tensor block = input[b][c][i];
-
-                // Move block to the same device as input tensor
-                torch::Tensor blockContiguous = block.to(device);
+                block = input[b][c][i].to(device);
 
                 // Get the dimensions of the block
-                int64_t xSize = blockContiguous.size(0);
-                int64_t ySize = blockContiguous.size(1);
-                int64_t zSize = blockContiguous.size(2);
+                int64_t xSize = block.size(0);
+                int64_t ySize = block.size(1);
+                int64_t zSize = block.size(2);
 
                 // Normalize the block to the range [0, 255]
-                blockContiguous = (blockContiguous - blockContiguous.min()) * (255.0 / (blockContiguous.max() - blockContiguous.min()));
+                block = (block - block.min()) * (hmax / (block.max() - block.min()));
 
                 // Compute the histogram of the block
-                torch::Tensor hist = torch::histc(blockContiguous.view(-1), 256, 0, 255).to(torch::kFloat);
+                hist = torch::histc(block.view(-1), nbins, 0, hmax).to(torch::kFloat);
 
                 // Clip the CDF to the specified limit
                 if ((clipLimit > 0) && (clipLimit < 1))
@@ -93,11 +98,16 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                 hist = hist / hist.max() * 255.0;
 
                 // Compute the equalized block using the modified histogram
-                torch::Tensor index = blockContiguous.view(-1).to(torch::kInt);
+                torch::Tensor index = block.view(-1).to(torch::kInt);
                 torch::Tensor equalizedBlock = torch::index_select(hist, 0, index);
 
                 // Copy back to the tensor
-                input[b][c][i] = equalizedBlock.reshape({xSize, ySize, zSize}).to(torch::kFloat) / 255.0;
+                input.index_put_(
+                    {b, c, i,
+                     Slice(None, None),
+                     Slice(None, None),
+                     Slice(None, None)},
+                    equalizedBlock.reshape({xSize, ySize, zSize}).to(torch::kFloat) / hmax);
             }
         }
     }
