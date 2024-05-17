@@ -12,9 +12,6 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
     // Ensure the input tensor is float
     input = input.to(torch::kFloat);
 
-    // Get the device type of the input tensor
-    torch::Device device = input.device();
-
     // Get the number of blocks, channels, and dimensions
     int64_t batchSize = input.size(0);
     int64_t numChannels = input.size(1);
@@ -39,32 +36,33 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
         {
             for (int64_t i = 0; i < numBlocks; ++i)
             {
+
+                // Get the current block
+                block = input.index({b, c, i});
+
+                // Get the dimensions of the block
+                int64_t xSize = block.size(0);
+                int64_t ySize = block.size(1);
+                int64_t zSize = block.size(2);
+
                 // Check if the mask is provided and focused CLAHE is requested
                 if (masked)
                 {
                     // Get the current mask block
-                    maskBlock = mask[b][c][i];
+                    maskBlock = mask.index({b, c, i});
 
                     if (maskBlock.sum().item<float>() == 0)
                     {
                         // Skip processing if the block is completely masked out
                         continue;
                     }
-                    else if (maskBlock.sum().item<float>() < 1)
+                    else if ((maskBlock.sum().item<float>() / b / c / i / xSize / ySize / zSize) < 1)
                     {
                         // Apply the mask to the input block
                         // if block is not completely masked in
-                        input[b][c][i] *= maskBlock;
+                        block = maskBlock * block;
                     }
                 }
-
-                // Get the current block
-                block = input[b][c][i].to(device);
-
-                // Get the dimensions of the block
-                int64_t xSize = block.size(0);
-                int64_t ySize = block.size(1);
-                int64_t zSize = block.size(2);
 
                 // Normalize the block to the range [0, 255]
                 block = (block - block.min()) * (hmax / (block.max() - block.min()));
@@ -79,7 +77,8 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                     torch::Tensor cdf = hist.cumsum(0);
 
                     // Normalize the CDF to the range [0, 1]
-                    cdf = cdf / cdf[-1];
+                    auto cmax = cdf.index({-1}).item<float>();
+                    cdf = cdf / cmax;
 
                     // Compute the excess distribution above the clip limit
                     torch::Tensor clipLimitTensor = torch::ones_like(cdf).fill_(clipLimit);
@@ -89,7 +88,7 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                     cdf = torch::min(cdf, clipLimitTensor);
 
                     // Redistribute the excess among the histogram bins
-                    torch::Tensor numExcessBins = (excess > 0).to(torch::kFloat).sum();
+                    auto numExcessBins = (excess > 0).to(torch::kFloat).sum().item<int>();
                     torch::Tensor excessPerBin = excess.sum() / numExcessBins;
                     hist = hist + excessPerBin;
                 }
