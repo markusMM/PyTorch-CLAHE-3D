@@ -5,15 +5,15 @@ from torch_clahe import compute_clahe
 
 class TestCLAHE3D:
 
-    x1 = torch.randn(2, 1, 9, 32, 32, 32)
-    x2 = torch.randn(2, 1, 128, 128, 128)
+    x1 = torch.randn(1, 10, 3, 32, 32, 32)
+    x2 = torch.randn(1, 3, 128, 128, 128)
 
     def test_shape(self):
         x1 = self.x1
         x1 = compute_clahe(x1, torch.ones_like(x1), .6, 256)
-        assert x1.shape[0] == 2
-        assert x1.shape[1] == 1
-        assert x1.shape[2] == 9
+        assert x1.shape[0] == 1
+        assert x1.shape[1] == 10
+        assert x1.shape[2] == 3
         assert x1.shape[3] == 32
         assert x1.shape[4] == 32
         assert x1.shape[5] == 32
