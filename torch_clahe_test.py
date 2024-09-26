@@ -21,7 +21,7 @@ class TestCLAHE3D:
     def test_inequality(self):
         x1 = self.x1.clone()
         x1 = compute_clahe(x1, torch.ones_like(x1), .6, 256)
-        assert ~np.allclose(x1, self.x1)
+        assert not np.allclose(x1, self.x1)
 
     def test_pipeline(self):
         try:
@@ -37,17 +37,17 @@ class TestCLAHE3D:
     def test_large_c(self):
         x = torch.randn(6, 1000, 4, 24, 24, 24)
         y = compute_clahe(x.clone(), torch.ones_like(x), .75, 256)
-        assert ~np.allclose(x, y)
+        assert not np.allclose(x, y)
 
     def test_property(self):
         y = compute_clahe(self.x1.clone(), torch.ones_like(self.x1), .75, 256)
-        assert ~np.allclose(self.x1, y)
+        assert not np.allclose(self.x1, y)
 
     def test_reference(self):
         x = self.x1
         y = compute_clahe(x[0][None].clone(),
                           torch.ones_like(x[0][None]), .75, 256)
-        assert ~np.allclose(x[0][None], y)
+        assert not np.allclose(x[0][None], y)
 
     def test_smoke(self):
         for k in range(2000, 8000, 1000):
@@ -56,4 +56,4 @@ class TestCLAHE3D:
                 y = compute_clahe(x.clone(), torch.ones_like(x), .75, 256)
             except MemoryError:
                 print(f'Smoke at C={k}')
-            assert ~np.allclose(x, y)
+            assert not np.allclose(x, y)
