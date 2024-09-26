@@ -65,8 +65,11 @@ torch::Tensor compute_clahe(torch::Tensor &input, torch::Tensor &mask, float cli
                 }
 
                 // Normalize the block to the range [0, 255]
-                block = (block - block.min()) * (hmax / (block.max() - block.min()));
-
+                if (block.max().item<float>() != block.min().item<float>()) {
+                    block = (block - block.min()) * (hmax / (block.max() - block.min()));
+                } else {
+                    block = (block - block.min()) * (hmax / block.min());
+                }
                 // Compute the histogram of the block
                 hist = torch::histc(block.view(-1), nbins, 0, hmax).to(torch::kFloat);
 
