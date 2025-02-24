@@ -7,7 +7,7 @@ setup(
         cpp_extension.CppExtension('torch_clahe', ['torch_clahe.cpp'])
     ],
     cmdclass={'build_ext': cpp_extension.BuildExtension},
-    version='0.98.2',
+    version='0.99.15',
     requires=["torch"]
 )
 
