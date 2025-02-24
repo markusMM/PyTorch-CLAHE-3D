@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 project(torch_clahe)
 
+# lib dirs
+set(Torch_DIR ${Torch_PATH}/share/cmake/Torch)
+
 # requirements
 find_package(Torch REQUIRED)
 
