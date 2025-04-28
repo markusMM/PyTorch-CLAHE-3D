@@ -97,7 +97,10 @@ torch::Tensor compute_clahe(
                     };
 
                     // Iterate over the dimensions (x, y, z)
-                    for (auto& [size, smooth_len, dim] : smooth_ranges) {
+                    for (auto& tpl : smooth_ranges) {
+                        auto size = std::get<0>(tpl);
+                        auto smooth_len = std::get<1>(tpl);
+                        auto dim = std::get<2>(tpl);
                         if (smooth_len > 0) {
                             // Prepare slices
                             std::vector<torch::indexing::TensorIndex> slices(3, Slice());
