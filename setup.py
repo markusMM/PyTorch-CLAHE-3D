@@ -11,7 +11,7 @@ setup(
         )
     ],
     cmdclass={'build_ext': cpp_extension.BuildExtension},
-    version='0.99.19',
+    version='1.00.00',
     requires=["torch"]
 )
 

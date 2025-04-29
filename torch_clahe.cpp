@@ -127,5 +127,15 @@ torch::Tensor compute_clahe(
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("compute_clahe", &compute_clahe, "CLAHE with overlap and interpolation");
+    m.def(
+        "compute_clahe", &compute_clahe, "CLAHE with overlap and interpolation", 
+        py::arg("input"),
+        py::arg("mask"),
+        py::arg("clipLimit") = 0.2f,
+        py::arg("nbins") = 256,
+        py::arg("overlap") = 0,
+        py::arg("adjust_edges") = true,
+        py::arg("block_norm") = false,
+        "CLAHE with overlap and interpolation"
+    );
 }
